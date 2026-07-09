@@ -24,8 +24,14 @@ type Api struct {
 	Method      string            `json:"method"`
 	PathPattern string            `json:"pathPattern"`
 	Description map[string]string `json:"descriptions,omitempty"`
+	Example     *ApiExample       `json:"example,omitempty"`
 	Parameters  []Parameter       `json:"parameters"`
 	Product     *Product          `json:"-"`
+}
+
+type ApiExample struct {
+	UnifiedCli string `json:"unifiedCli,omitempty"`
+	LegacyCli  string `json:"legacyCli,omitempty"`
 }
 
 func (a *Api) GetMethod() string {

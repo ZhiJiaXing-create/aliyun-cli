@@ -70,6 +70,75 @@ func TestLibrary_PrintApiUsage(t *testing.T) {
 	assert.Nil(t, err)
 }
 
+func TestLibrary_PrintApiUsageExamples(t *testing.T) {
+	originalHook := meta.HookGetApi
+	defer func() {
+		meta.HookGetApi = originalHook
+	}()
+
+	meta.HookGetApi = func(fn func(productCode string, version string, apiName string) (meta.Api, bool)) func(productCode string, version string, apiName string) (meta.Api, bool) {
+		return func(productCode string, version string, apiName string) (meta.Api, bool) {
+			return meta.Api{
+				Name:       "DescribeInstances",
+				Protocol:   "HTTP|HTTPS",
+				Method:     "GET|POST",
+				Parameters: []meta.Parameter{},
+				Example: &meta.ApiExample{
+					LegacyCli:  "aliyun ecs DescribeInstances --RegionId cn-hangzhou --PageSize 10",
+					UnifiedCli: "aliyun ecs describe-instances --region cn-hangzhou --page-size 10",
+				},
+			}, true
+		}
+	}
+
+	w := new(bytes.Buffer)
+	library := NewLibrary(w, "en")
+	library.builtinRepo = getRepository()
+
+	err := library.PrintApiUsage("ecs", "DescribeInstances")
+	assert.Nil(t, err)
+	output := w.String()
+	assert.Contains(t, output, "Examples:")
+	assert.Contains(t, output, "Legacy CLI:")
+	assert.Contains(t, output, "aliyun ecs DescribeInstances --RegionId cn-hangzhou --PageSize 10")
+	assert.Contains(t, output, "Recommended unified CLI:")
+	assert.Contains(t, output, "aliyun ecs describe-instances --region cn-hangzhou --page-size 10")
+}
+
+func TestLibrary_PrintApiUsageExampleWithoutUnifiedCli(t *testing.T) {
+	originalHook := meta.HookGetApi
+	defer func() {
+		meta.HookGetApi = originalHook
+	}()
+
+	meta.HookGetApi = func(fn func(productCode string, version string, apiName string) (meta.Api, bool)) func(productCode string, version string, apiName string) (meta.Api, bool) {
+		return func(productCode string, version string, apiName string) (meta.Api, bool) {
+			return meta.Api{
+				Name:       "DescribeInstances",
+				Protocol:   "HTTP|HTTPS",
+				Method:     "GET|POST",
+				Parameters: []meta.Parameter{},
+				Example: &meta.ApiExample{
+					LegacyCli: "aliyun ecs DescribeInstances --RegionId cn-hangzhou --PageSize 10",
+				},
+			}, true
+		}
+	}
+
+	w := new(bytes.Buffer)
+	library := NewLibrary(w, "en")
+	library.builtinRepo = getRepository()
+
+	err := library.PrintApiUsage("ecs", "DescribeInstances")
+	assert.Nil(t, err)
+	output := w.String()
+	assert.Contains(t, output, "Examples:")
+	assert.Contains(t, output, "Legacy CLI:")
+	assert.Contains(t, output, "aliyun ecs DescribeInstances --RegionId cn-hangzhou --PageSize 10")
+	assert.NotContains(t, output, "Recommended unified CLI:")
+	assert.NotContains(t, output, "aliyun ecs describe-instances")
+}
+
 func Test_printParameters(t *testing.T) {
 	w := new(bytes.Buffer)
 	params := []meta.Parameter{

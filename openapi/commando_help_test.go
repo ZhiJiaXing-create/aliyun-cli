@@ -202,6 +202,62 @@ func TestPrintApiUsage_BuiltinApi(t *testing.T) {
 	assert.Contains(t, output, "Parameters:")
 }
 
+func TestPrintApiUsage_BuiltinApiExamples(t *testing.T) {
+	originalHook := meta.HookGetApi
+	defer func() {
+		meta.HookGetApi = originalHook
+	}()
+
+	meta.HookGetApi = func(fn func(productCode string, version string, apiName string) (meta.Api, bool)) func(productCode string, version string, apiName string) (meta.Api, bool) {
+		return func(productCode string, version string, apiName string) (meta.Api, bool) {
+			return meta.Api{
+				Name:       "DescribeInstances",
+				Protocol:   "HTTP|HTTPS",
+				Method:     "GET|POST",
+				Parameters: []meta.Parameter{},
+				Example: &meta.ApiExample{
+					LegacyCli:  "aliyun ecs DescribeInstances --RegionId cn-hangzhou --PageSize 10",
+					UnifiedCli: "aliyun ecs describe-instances --region cn-hangzhou --page-size 10",
+				},
+			}, true
+		}
+	}
+
+	c, stdout, stderr := newTestCommando()
+	ctx := newTestContext(stdout, stderr)
+	c.library.builtinRepo = getRepository()
+
+	err := c.printApiUsage(ctx, "ecs", "DescribeInstances")
+	assert.NoError(t, err)
+
+	output := stdout.String()
+	assert.Contains(t, output, "Examples:")
+	assert.Contains(t, output, "Legacy CLI:")
+	assert.Contains(t, output, "aliyun ecs DescribeInstances --RegionId cn-hangzhou --PageSize 10")
+	assert.Contains(t, output, "Recommended unified CLI:")
+	assert.Contains(t, output, "aliyun ecs describe-instances --region cn-hangzhou --page-size 10")
+}
+
+func TestPrintApiUsage_BuiltinApiExamplesFromMetadata(t *testing.T) {
+	c, stdout, stderr := newTestCommando()
+	ctx := newTestContext(stdout, stderr)
+	c.library.builtinRepo = getRepository()
+
+	err := c.printApiUsage(ctx, "ecs", "DescribeInstances")
+	assert.NoError(t, err)
+
+	output := stdout.String()
+	assert.Contains(t, output, "Examples:")
+	assert.Contains(t, output, "Legacy CLI:")
+	assert.Contains(t, output, "aliyun ecs DescribeInstances")
+	assert.Contains(t, output, "--HttpPutResponseHopLimit 0")
+	assert.Contains(t, output, "--AdditionalAttributes.1 META_OPTIONS")
+	assert.Contains(t, output, "Recommended unified CLI:")
+	assert.Contains(t, output, "aliyun ecs describe-instances")
+	assert.Contains(t, output, "--biz-region-id cn-hangzhou")
+	assert.Contains(t, output, "--additional-attributes META_OPTIONS")
+}
+
 func TestPrintApiUsage_UnknownApi_NoPlugin(t *testing.T) {
 	c, stdout, stderr := newTestCommando()
 	ctx := newTestContext(stdout, stderr)

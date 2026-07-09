@@ -139,7 +139,7 @@ func (a *Library) PrintApiUsage(productCode string, apiName string) error {
 	if !ok {
 		return &InvalidProductError{Code: productCode, library: a}
 	}
-	api, ok := a.builtinRepo.GetApi(productCode, product.Version, apiName)
+	api, ok := meta.HookGetApi(a.builtinRepo.GetApi)(productCode, product.Version, apiName)
 	if !ok {
 		return &InvalidApiError{Name: apiName, product: &product}
 	}
@@ -161,7 +161,30 @@ func (a *Library) PrintApiUsage(productCode string, apiName string) error {
 	printParameters(w, api.Parameters, "", detail)
 	w.Flush()
 
+	printApiExamples(a.writer, api.Example)
+
 	return nil
+}
+
+func printApiExamples(w io.Writer, example *meta.ApiExample) {
+	if example == nil {
+		return
+	}
+	legacyCli := strings.TrimSpace(example.LegacyCli)
+	unifiedCli := strings.TrimSpace(example.UnifiedCli)
+	if legacyCli == "" && unifiedCli == "" {
+		return
+	}
+
+	cli.Printf(w, "\nExamples:\n")
+	if legacyCli != "" {
+		cli.Printf(w, "  Legacy CLI:\n")
+		cli.Printf(w, "    %s\n", legacyCli)
+	}
+	if unifiedCli != "" {
+		cli.Printf(w, "  Recommended unified CLI:\n")
+		cli.Printf(w, "    %s\n", unifiedCli)
+	}
 }
 
 func printParameters(w io.Writer, params []meta.Parameter, prefix string, detail *newmeta.APIDetail) {

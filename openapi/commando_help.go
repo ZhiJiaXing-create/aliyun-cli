@@ -24,6 +24,7 @@ import (
 	"github.com/aliyun/aliyun-cli/v3/cli/plugin"
 	"github.com/aliyun/aliyun-cli/v3/config"
 	"github.com/aliyun/aliyun-cli/v3/i18n"
+	"github.com/aliyun/aliyun-cli/v3/meta"
 	"github.com/aliyun/aliyun-cli/v3/newmeta"
 	"github.com/aliyun/aliyun-cli/v3/sysconfig/aimode"
 )
@@ -363,7 +364,7 @@ func (c *Commando) printApiUsage(ctx *cli.Context, productCode string, apiName s
 	}
 
 	// Case B: Built-in product exists
-	api, ok := c.library.builtinRepo.GetApi(productCode, product.Version, apiName)
+	api, ok := meta.HookGetApi(c.library.builtinRepo.GetApi)(productCode, product.Version, apiName)
 	if !ok {
 		// API not found in built-in metadata. api in plugin is different from api from built-in
 		if pluginName != "" {
@@ -403,6 +404,7 @@ func (c *Commando) printApiUsage(ctx *cli.Context, productCode string, apiName s
 	detail, _ := newmeta.GetAPIDetail(i18n.GetLanguage(), productCode, apiName)
 	printParameters(w, api.Parameters, "", detail)
 	w.Flush()
+	printApiExamples(ctx.Stdout(), api.Example)
 
 	return nil
 }
