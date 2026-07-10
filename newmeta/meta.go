@@ -128,7 +128,8 @@ type RequestParameter struct {
 }
 
 func GetProductName(language, code string) (name string, err error) {
-	content, err := GetMetadata(language, "/products.json")
+	langDir := GetMetadataPrefix(language)
+	content, err := aliyunopenapimeta.Metadatas.ReadFile("products/" + langDir + "/products.json")
 	if err != nil {
 		return
 	}
@@ -150,7 +151,8 @@ func GetProductName(language, code string) (name string, err error) {
 }
 
 func GetAPI(language, code, name string) (api *API, err error) {
-	content, err := GetMetadata(language, "/"+strings.ToLower(code)+"/version.json")
+	// version.json is language-independent, stored under metadatas/
+	content, err := aliyunopenapimeta.Metadatas.ReadFile("metadatas/" + strings.ToLower(code) + "/version.json")
 	if err != nil {
 		return
 	}
@@ -169,15 +171,47 @@ func GetAPI(language, code, name string) (api *API, err error) {
 }
 
 func GetAPIDetail(language, code, name string) (api *APIDetail, err error) {
-	content, err := GetMetadata(language, "/"+strings.ToLower(code)+"/"+name+".json")
+	lowerCode := strings.ToLower(code)
+
+	// 1. Read language-independent base structure from metadatas/
+	baseContent, err := aliyunopenapimeta.Metadatas.ReadFile("metadatas/" + lowerCode + "/" + name + ".json")
 	if err != nil {
 		return
 	}
 
 	detail := new(APIDetail)
-	err = json.Unmarshal(content, &detail)
+	err = json.Unmarshal(baseContent, &detail)
 	if err != nil {
 		return
+	}
+
+	// 2. Read language-dependent descriptions from descriptions/{lang}/ and merge
+	langDir := GetMetadataPrefix(language)
+	descContent, descErr := aliyunopenapimeta.Metadatas.ReadFile("descriptions/" + langDir + "/" + lowerCode + "/" + name + ".json")
+	if descErr == nil {
+		var descData struct {
+			Parameters []struct {
+				Name        string `json:"name"`
+				Description string `json:"description"`
+			} `json:"parameters"`
+			Deprecated *bool `json:"deprecated,omitempty"`
+		}
+		if json.Unmarshal(descContent, &descData) == nil {
+			// Build description lookup map
+			descMap := make(map[string]string, len(descData.Parameters))
+			for _, p := range descData.Parameters {
+				descMap[p.Name] = p.Description
+			}
+			// Merge descriptions into base parameters
+			for i := range detail.Parameters {
+				if desc, ok := descMap[detail.Parameters[i].Name]; ok {
+					detail.Parameters[i].Description = desc
+				}
+			}
+			if descData.Deprecated != nil {
+				detail.Deprecated = *descData.Deprecated
+			}
+		}
 	}
 
 	api = detail
