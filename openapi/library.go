@@ -217,7 +217,7 @@ func getDescription(detail *newmeta.APIDetail, name string) string {
 	}
 	for _, p := range detail.Parameters {
 		if name == p.Name {
-			return strings.TrimSpace(p.Description)
+			return strings.TrimSpace(newmeta.GetDescription(p.Description, i18n.GetLanguage()))
 		}
 	}
 

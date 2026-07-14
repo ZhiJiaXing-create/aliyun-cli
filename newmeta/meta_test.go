@@ -6,16 +6,28 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestGetMetadataPrefix(t *testing.T) {
-	assert.Equal(t, "zh-CN", GetMetadataPrefix(""))
-	assert.Equal(t, "en-US", GetMetadataPrefix("en"))
-	assert.Equal(t, "zh-CN", GetMetadataPrefix("zh"))
-}
+func TestGetDescription(t *testing.T) {
+	// nil map
+	assert.Equal(t, "", GetDescription(nil, "zh"))
 
-func TestGetMetadata(t *testing.T) {
-	content, err := GetMetadata("en", "/products.json")
-	assert.Nil(t, err)
-	assert.Greater(t, len(content), 100)
+	// zh only
+	desc := map[string]string{"zh": "中文描述"}
+	assert.Equal(t, "中文描述", GetDescription(desc, "zh"))
+	assert.Equal(t, "中文描述", GetDescription(desc, "en")) // fallback to zh
+
+	// en only
+	desc = map[string]string{"en": "English description"}
+	assert.Equal(t, "English description", GetDescription(desc, "en"))
+	assert.Equal(t, "English description", GetDescription(desc, "zh")) // fallback to en
+
+	// both
+	desc = map[string]string{"zh": "中文", "en": "English"}
+	assert.Equal(t, "中文", GetDescription(desc, "zh"))
+	assert.Equal(t, "English", GetDescription(desc, "en"))
+
+	// empty zh, fallback to en
+	desc = map[string]string{"zh": "", "en": "English"}
+	assert.Equal(t, "English", GetDescription(desc, "zh"))
 }
 
 func TestGetProductName(t *testing.T) {
@@ -30,8 +42,8 @@ func TestGetProductName(t *testing.T) {
 func TestGetAPI(t *testing.T) {
 	api, err := GetAPI("en", "ecs", "DescribeRegions")
 	assert.Nil(t, err)
-	assert.Equal(t, "DescribeRegions", api.Title)
-	assert.Equal(t, "Queries available Alibaba Cloud regions.", api.Summary)
+	assert.Equal(t, "查询地域列表", api.Title)
+	assert.Equal(t, "根据计费方式、资源类型等参数查询地域信息列表。", api.Summary)
 	assert.Equal(t, false, api.Deprecated)
 
 	api2, err := GetAPI("en", "ecs", "Invalid")
@@ -51,7 +63,7 @@ func TestIsAnonymousAPI(t *testing.T) {
 	akapi, err := GetAPIDetail("en", "ecs", "DescribeRegions")
 	assert.Nil(t, err)
 	assert.False(t, akapi.IsAnonymousAPI())
-	api, err := GetAPIDetail("en", "sts", "AssumeRoleWithOIDC")
+	api, err := GetAPIDetail("en", "ice", "GetPublicMediaInfo")
 	assert.Nil(t, err)
 	assert.True(t, api.IsAnonymousAPI())
 }
