@@ -14,6 +14,8 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
 	"embed"
 	"encoding/json"
 	"fmt"
@@ -21,6 +23,7 @@ import (
 	"os"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/aliyun/aliyun-cli/v3/cli"
 	"github.com/aliyun/aliyun-cli/v3/cli/plugin"
@@ -64,6 +67,11 @@ func Main(args []string) {
 	stdout := newStdoutWriter()
 	stderr := newStderrWriter()
 
+	if len(args) > 0 && args[0] == "__e2e-batch-dryrun" {
+		exit(runE2EBatchDryRun(args[1:], os.Stdin, stdout, stderr))
+		return
+	}
+
 	if sysmock.FirstCommandToken(args) != "mock" {
 		result := sysmock.Intercept(sysmock.Options{
 			Args:     args,
@@ -105,6 +113,10 @@ func Main(args []string) {
 }
 
 func newRootCommand(profile config.Profile, stdout io.Writer) *cli.Command {
+	return newRootCommandWithCommando(profile, openapi.NewCommando(stdout, profile))
+}
+
+func newRootCommandWithCommando(profile config.Profile, commando *openapi.Commando) *cli.Command {
 	// create root command
 	rootCmd := &cli.Command{
 		Name:              "aliyun",
@@ -119,7 +131,6 @@ func newRootCommand(profile config.Profile, stdout io.Writer) *cli.Command {
 	openapi.AddFlags(rootCmd.Flags())
 
 	// new open api commando to process rootCmd
-	commando := openapi.NewCommando(stdout, profile)
 	commando.InitWithCommand(rootCmd)
 
 	rootCmd.AddSubCommand(config.NewConfigureCommand())
@@ -179,6 +190,131 @@ func newRootCommand(profile config.Profile, stdout io.Writer) *cli.Command {
 	plugin.RegisterReservedTopLevelCommands(rootCmd.SubCommandNames())
 
 	return rootCmd
+}
+
+type e2eBatchRequest struct {
+	ID   string   `json:"id"`
+	Argv []string `json:"argv"`
+}
+
+type e2eBatchResponse struct {
+	ID              string `json:"id"`
+	ReturnCode      int    `json:"returncode"`
+	Stdout          string `json:"stdout"`
+	Stderr          string `json:"stderr"`
+	Error           string `json:"error,omitempty"`
+	ElapsedMS       int64  `json:"elapsed_ms"`
+	StdoutTruncated bool   `json:"stdout_truncated"`
+	StderrTruncated bool   `json:"stderr_truncated"`
+}
+
+func runE2EBatchDryRun(args []string, in io.Reader, out io.Writer, errOut io.Writer) int {
+	if len(args) == 1 && args[0] == "--probe" {
+		cli.Println(out, "ok")
+		return 0
+	}
+	encoder := json.NewEncoder(out)
+	scanner := bufio.NewScanner(in)
+	scanner.Buffer(make([]byte, 64*1024), 16*1024*1024)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		resp := executeE2EBatchLine(line)
+		if err := encoder.Encode(resp); err != nil {
+			cli.Errorf(errOut, "ERROR: write batch response failed: %v\n", err)
+			return 1
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		cli.Errorf(errOut, "ERROR: read batch request failed: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+func executeE2EBatchLine(line string) e2eBatchResponse {
+	var req e2eBatchRequest
+	if err := json.Unmarshal([]byte(line), &req); err != nil {
+		return e2eBatchResponse{ReturnCode: 2, Error: "invalid_json", Stderr: err.Error()}
+	}
+	if req.ID == "" {
+		req.ID = strings.Join(req.Argv, " ")
+	}
+	resp := e2eBatchResponse{ID: req.ID}
+	if !hasE2EDryRunFlag(req.Argv) {
+		resp.ReturnCode = 2
+		resp.Error = "missing_dry_run"
+		resp.Stderr = "batch dry-run requires --dryrun, --cli-dry-run, or --cli-dry-run-json"
+		return resp
+	}
+
+	stdout := new(bytes.Buffer)
+	stderr := new(bytes.Buffer)
+	exitCode := 0
+	start := time.Now()
+	runSingleE2EDryRun(req.Argv, stdout, stderr, func(code int) {
+		exitCode = code
+	})
+	resp.ReturnCode = exitCode
+	resp.Stdout = stdout.String()
+	resp.Stderr = stderr.String()
+	resp.ElapsedMS = time.Since(start).Milliseconds()
+	return resp
+}
+
+func runSingleE2EDryRun(args []string, stdout io.Writer, stderr io.Writer, exitHook func(int)) {
+	oldStdoutWriter := newStdoutWriter
+	oldStderrWriter := newStderrWriter
+	oldExit := exit
+	oldArgs := os.Args
+	defer func() {
+		newStdoutWriter = oldStdoutWriter
+		newStderrWriter = oldStderrWriter
+		exit = oldExit
+		os.Args = oldArgs
+	}()
+	newStdoutWriter = func() io.Writer { return stdout }
+	newStderrWriter = func() io.Writer { return stderr }
+	exit = exitHook
+	os.Args = append([]string{"aliyun"}, args...)
+	cli.WithExitHook(exitHook, func() {
+		Main(args)
+	})
+}
+
+func hasE2EDryRunFlag(args []string) bool {
+	for _, arg := range args {
+		if arg == "--dryrun" || arg == "--cli-dry-run" || arg == "--cli-dry-run-json" {
+			return true
+		}
+		if strings.HasPrefix(arg, "--dryrun=") {
+			if isTruthyE2EFlagValue(strings.TrimPrefix(arg, "--dryrun=")) {
+				return true
+			}
+		}
+		if strings.HasPrefix(arg, "--cli-dry-run=") {
+			if isTruthyE2EFlagValue(strings.TrimPrefix(arg, "--cli-dry-run=")) {
+				return true
+			}
+		}
+		if strings.HasPrefix(arg, "--cli-dry-run-json=") {
+			if isTruthyE2EFlagValue(strings.TrimPrefix(arg, "--cli-dry-run-json=")) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func isTruthyE2EFlagValue(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "1", "true", "yes", "y", "on":
+		return true
+	default:
+		return false
+	}
 }
 
 func ParseInSecure(args []string) (bool, interface{}) {
